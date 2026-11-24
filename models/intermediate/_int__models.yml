@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: int_account_rollup
+    description: >
+      Rolls up 1-to-many subscriptions (70 rows across 39 accounts) and users
+      (301 rows across 59 accounts) to strictly 1 row per account_id (60 rows)
+      before joining onto stg_accounts. Prevents fan-out when downstream marts
+      join fct_tickets to dim_accounts.
+    columns:
+      - name: account_id
+        description: "Unique account key after subscription and user aggregation."
+        data_tests:
+          # Test annotation (unique + not_null):
+          # Why it matters here: 24 accounts hold multiple subscriptions and 59 accounts have multiple users.
+          # Downstream impact if broken: If a join leaks multiple rows per account here, joining fct_tickets to
+          # dim_accounts will multiply ticket rows and double-count ticket volume and active_mrr in BI reports.
+          - unique
+          - not_null
+
+  - name: int_tickets_enriched
+    description: >
+      Enriches cleaned support tickets with SLA target hours, resolution time
+      in hours, open/closed flags, and account region/subscription context.
+    columns:
+      - name: ticket_id
+        description: "Unique ticket key."
+        data_tests:
+          - unique
+          - not_null

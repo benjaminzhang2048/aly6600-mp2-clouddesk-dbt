@@ -1,0 +1,16 @@
+version: 2
+
+sources:
+  - name: clouddesk_raw
+    description: "Raw CloudDesk B2B SaaS operational tables loaded into BigQuery dataset mp2."
+    database: parabolic-eon-481321-m3
+    schema: mp2
+    tables:
+      - name: accounts
+        description: "One row per customer company account."
+      - name: subscriptions
+        description: "One row per SaaS subscription contract held by an account."
+      - name: users
+        description: "One row per end user registered under a customer account."
+      - name: tickets
+        description: "One row per customer support ticket submitted by an account."

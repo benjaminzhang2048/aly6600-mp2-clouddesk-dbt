@@ -1,0 +1,75 @@
+version: 2
+
+models:
+  - name: dim_accounts
+    description: >
+      Account dimension mart materialized as a table (one row per account).
+      Combines account attributes with cleaned active subscription MRR, seats,
+      and user counts.
+    columns:
+      - name: account_id
+        description: "Primary key of dim_accounts."
+        data_tests:
+          # Test annotation (unique + not_null):
+          # Why it matters here: Analysts join fct_tickets to dim_accounts on account_id to slice support load by region and MRR tier.
+          # Downstream impact if broken: A duplicate or null account_id causes fan-out or dropped joins in BI dashboards,
+          # inflating ticket counts and misstating revenue-per-ticket metrics.
+          - unique
+          - not_null
+
+  - name: fct_tickets
+    description: >
+      Support ticket fact mart materialized as a table (one row per ticket).
+      Includes SLA targets, resolution hours, and account context.
+    columns:
+      - name: ticket_id
+        description: "Primary key of fct_tickets."
+        data_tests:
+          # Test annotation (unique + not_null):
+          # Why it matters here: Each row in fct_tickets must represent exactly one customer support ticket.
+          # Downstream impact if broken: Duplicate ticket_id rows inflate open backlog counts and skew average resolution_hours.
+          - unique
+          - not_null
+      - name: account_id
+        description: "Foreign key referencing dim_accounts."
+        data_tests:
+          # Test annotation (not_null + relationships):
+          # Why it matters here: Every ticket belongs to one of the 60 CloudDesk customer accounts.
+          # Downstream impact if broken: An unmatched or null account_id causes BI inner joins between fct_tickets and
+          # dim_accounts to silently drop tickets from regional and industry support reports.
+          - not_null
+          - relationships:
+              arguments:
+                to: ref('dim_accounts')
+                field: account_id
+      - name: opened_at
+        description: >
+          Timestamp when the ticket was opened. Note: closed_at intentionally does
+          NOT carry a not_null test because the 170 open tickets legitimately have
+          NULL closed_at; their timeline consistency is enforced by the custom SQL
+          test assert_ticket_resolution_timeline.
+        data_tests:
+          # Test annotation (not_null):
+          # Why it matters here: opened_at is the anchor timestamp for ticket volume trends and resolution_hours calculation.
+          # Downstream impact if broken: Missing opened_at breaks resolution_hours and leaves is_sla_met NULL even on closed tickets.
+          - not_null
+      - name: priority
+        description: "Normalized lowercase ticket priority."
+        data_tests:
+          # Test annotation (accepted_values):
+          # Why it matters here: Raw tickets mixes 'High' (123 rows), 'high' (119 rows), and 'URGENT' (122 rows).
+          # Downstream impact if broken: Uncleaned casing falls into the ELSE 72 branch of sla_target_hours in
+          # int_tickets_enriched, falsely inflating is_sla_met pass rates for Urgent (4h) and High (24h) tickets.
+          - accepted_values:
+              arguments:
+                values: ['low', 'medium', 'high', 'urgent']
+      - name: ticket_status
+        description: "Normalized lowercase ticket status."
+        data_tests:
+          # Test annotation (accepted_values):
+          # Why it matters here: Raw tickets mixes 'closed' (149 rows) and 'Closed' (149 rows).
+          # Downstream impact if broken: Unnormalized status breaks is_open logic and splits closed tickets across two
+          # categories in support resolution dashboards.
+          - accepted_values:
+              arguments:
+                values: ['open', 'resolved', 'closed']

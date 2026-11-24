@@ -1,0 +1,81 @@
+version: 2
+
+models:
+  - name: stg_accounts
+    description: "Cleaned 1-to-1 staging model for raw CloudDesk customer accounts."
+    columns:
+      - name: account_id
+        description: "Primary key for customer accounts."
+        data_tests:
+          - unique
+          - not_null
+
+  - name: stg_subscriptions
+    description: >
+      Cleaned staging model for CloudDesk subscriptions. Standardizes status casing,
+      preserves raw_mrr, and nulls out the 99999 sentinel outlier in mrr while
+      flagging affected rows with is_mrr_outlier.
+    columns:
+      - name: subscription_id
+        description: "Primary key for each subscription record."
+        data_tests:
+          - unique
+          - not_null
+      - name: account_id
+        description: "Foreign key to stg_accounts."
+        data_tests:
+          # Test annotation (relationships):
+          # Why it matters here: Multiple subscriptions belong to one account, and 21 accounts have 0 subscriptions.
+          # Downstream impact if broken: An orphaned account_id in stg_subscriptions would drop silently during the
+          # LEFT JOIN in int_account_rollup, causing dim_accounts.active_mrr and active_seats to underreport company revenue.
+          - relationships:
+              arguments:
+                to: ref('stg_accounts')
+                field: account_id
+      - name: subscription_status
+        description: "Normalized lowercase subscription status."
+        data_tests:
+          # Test annotation (accepted_values):
+          # Why it matters here: Raw subscriptions mixes 'active' (38 rows) and 'Active' (20 rows) alongside 'churned' (12 rows).
+          # Downstream impact if broken: Any uncleaned 'Active' or unexpected status escapes the `subscription_status = 'active'`
+          # filter in int_account_rollup, dropping 20 valid subscriptions from dim_accounts.active_subscriptions and active_mrr.
+          - accepted_values:
+              arguments:
+                values: ['active', 'churned']
+
+  - name: stg_users
+    description: "Cleaned staging model for CloudDesk end users."
+    columns:
+      - name: user_id
+        description: "Primary key for users."
+        data_tests:
+          - unique
+          - not_null
+      - name: email
+        description: "Lowercased and trimmed user email address."
+        data_tests:
+          # Test annotation (unique + not_null):
+          # Why it matters here: Duplicate or blank user emails represent duplicate user accounts or broken identity records.
+          # Downstream impact if broken: Duplicate user records inflate dim_accounts.total_users and users_with_login,
+          # distorting seat-utilization and adoption metrics per customer account.
+          - unique
+          - not_null
+      - name: user_role
+        description: "Normalized lowercase user role."
+        data_tests:
+          # Test annotation (accepted_values):
+          # Why it matters here: Raw users mixes 'admin' (75 rows) and 'Admin' (74 rows).
+          # Downstream impact if broken: Unnormalized 'Admin' rows fail the `user_role = 'admin'` filter in
+          # int_account_rollup, cutting dim_accounts.admin_users nearly in half.
+          - accepted_values:
+              arguments:
+                values: ['admin', 'member', 'viewer']
+
+  - name: stg_tickets
+    description: "Cleaned staging model for CloudDesk support tickets."
+    columns:
+      - name: ticket_id
+        description: "Primary key for support tickets."
+        data_tests:
+          - unique
+          - not_null

@@ -1,0 +1,26 @@
+version: 2
+
+snapshots:
+  - name: snp_subscriptions
+    description: >
+      SCD Type 2 snapshot tracking historical changes to CloudDesk subscription
+      plan, seats, MRR, and status at one row per subscription version.
+      Strategy rationale: Although raw subscriptions includes an updated_at column,
+      source profiling shows 8 of 70 rows have updated_at earlier than started_at
+      (for example, subscription_id 2 has started_at = 2024-07-10 and
+      updated_at = 2024-01-04), proving updated_at is not reliably maintained by
+      the source system. Using strategy='check' on ['plan', 'seats', 'mrr', 'status']
+      instead of strategy='timestamp' ensures upgrades, seat changes, MRR changes,
+      and churn transitions are still captured even when updated_at fails to advance.
+      Status is lowercased in the snapshot query so raw active/Active casing
+      differences do not trigger false Type 2 versions.
+    columns:
+      - name: subscription_id
+        description: "Natural business key identifying each subscription contract."
+        data_tests:
+          - not_null
+      - name: dbt_scd_id
+        description: "dbt-generated surrogate key uniquely identifying each Type 2 version."
+        data_tests:
+          - unique
+          - not_null
